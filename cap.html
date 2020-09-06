@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <title>NOAA CAP Alerts</title>
+</head>
+<body>
+  <form id="change-state">
+    <label for="state">Change State: </label><input id="state" type="text" minlength="2" maxlength="2">
+    <input type="submit">
+  </form>
+  <h2 id="title"></h2>
+  <div id="count"></div>
+  <div id="alert"></div>
+  
+  <script>
+    // Get NDFD Data
+    // getNDFDData(29.65, -82.32, 3)
+
+    // Get Florida Alerts when user first comes to the web app
+    getAlertData('fl')
+
+    // Capture user entry for the state for which they want alerts
+    const form = document.getElementById('change-state')
+    form.addEventListener('submit', (evt) => {
+      evt.preventDefault()
+      const state = document.getElementById('state').value.toLowerCase()
+      getAlertData(state)
+      form.reset()
+    })
+
+    // Changes XML to JSON
+    // See: https://davidwalsh.name/convert-xml-json for the gory details on this conversion function
+    function xmlToJson(xml) {
+      
+      // Create the return object
+      var obj = {};
+
+      if (xml.nodeType == 1) { // element
+        // do attributes
+        if (xml.attributes.length > 0) {
+        obj["@attributes"] = {};
+          for (var j = 0; j < xml.attributes.length; j++) {
+            var attribute = xml.attributes.item(j);
+            obj["@attributes"][attribute.nodeName] = attribute.nodeValue;
+          }
+        }
+      } else if (xml.nodeType == 3) { // text
+        obj = xml.nodeValue;
+      }
+
+      // do children
+      if (xml.hasChildNodes()) {
+        for(var i = 0; i < xml.childNodes.length; i++) {
+          var item = xml.childNodes.item(i);
+          var nodeName = item.nodeName;
+          if (typeof(obj[nodeName]) == "undefined") {
+            obj[nodeName] = xmlToJson(item);
+          } else {
+            if (typeof(obj[nodeName].push) == "undefined") {
+              var old = obj[nodeName];
+              obj[nodeName] = [];
+              obj[nodeName].push(old);
+            }
+            obj[nodeName].push(xmlToJson(item));
+          }
+        }
+      }
+      return obj;
+    };
+
+    function getAlertData(state) {
+      fetch(`https://alerts.weather.gov/cap/${state}.php?x=0`)
+        .then(response => response.text())
+        .then(text => (new DOMParser()).parseFromString(text, 'text/xml'))
+        .then(data => {
+          
+          // Convert XML to JSON for easier parsing
+          const warnings = xmlToJson(data.getElementsByTagName('feed')[0])
+
+          // Display Page Title
+          document.getElementById('title').innerHTML = warnings.title['#text']
+
+          if (!Array.isArray(warnings.entry)) {
+              const alert = document.getElementById('alert')
+          
+              alert.innerHTML = `
+                <a href="${warnings.entry.id["#text"]}">${warnings.entry['cap:event']['#text']}</a><br />
+                <b>Locations: </b>${warnings.entry['cap:areaDesc']['#text']}<br />
+                <b>Begins: </b>${warnings.entry['cap:effective']['#text']}<br />
+                <b>Ends:</b> ${warnings.entry['cap:expires']['#text']}<br />
+                <p>${warnings.entry.summary['#text']}</p><hr>
+              `
+          }
+          
+          // Check to see if there are alerts
+          if (warnings.entry.length) {
+            // Clear any previous alerts from other states that may have been loaded
+            document.getElementById('alert').innerHTML = ''
+            
+            // Display Alert Count
+            document.getElementById('count').innerHTML = `<b>Alert Count:</b> ${warnings.entry.length} <hr />`
+
+            // Loop through each alert and insert into the DOM
+            warnings.entry.map((warning, count) => {
+              const createAlertDiv = document.createElement('div')
+              createAlertDiv.setAttribute('id', `alert-${count}`)
+
+              const alert = document.getElementById('alert')
+              alert.appendChild(createAlertDiv)
+
+              document.getElementById(`alert-${count}`).innerHTML = `
+                
+                <a href="${warning.id["#text"]}">${warning['cap:event']['#text']}</a><br />
+                <b>Locations: </b>${warning['cap:areaDesc']['#text']}<br />
+                <b>Begins: </b>${warning['cap:effective']['#text']}<br />
+                <b>Ends:</b> ${warning['cap:expires']['#text']}<br />
+                <p>${warning.summary['#text']}</p><hr>
+              `
+            })
+            // If there are no alerts in the state
+          } else {
+            document.getElementById('count').innerHTML = `<b>Alert Count:</b> 0<hr />`
+            document.getElementById('alert').innerHTML = ''
+          }
+        })
+        .catch(err => alert(`Some error happened. Here\'s what it says: ${err} `))
+    }
+
+    function getNDFDData(lat, lon, days) {
+      fetch(`https://graphical.weather.gov/xml/sample_products/browser_interface/ndfdBrowserClientByDay.php?lat=${lat}&lon=${lon}&format=24+hourly&numDays=${days}`)
+        .then(response => response.text())
+        .then(text => (new DOMParser()).parseFromString(text, 'text/xml'))
+        .then(data => {
+          const ndfd = xmlToJson(data.getElementsByTagName('feed')[0])
+          console.log(ndfd)
+        })
+        .catch(err => alert(`Some error happened. Here\'s what it says: ${err} `))
+    }
+  </script>
+
+</body>
+
+</html>
